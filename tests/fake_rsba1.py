@@ -126,6 +126,8 @@ class FakeRadio:
         self.ptt = False
         self.ptt_log = []                    # (time, on)
         self.freq_log = []                   # (time, hz) of every frequency set
+        self.ng_data_reads = 0               # answer this many DATA reads (1A 06) with NG only
+        self.drop_data_reads = 0             # ... or not at all
         # PTT changes and frequency sets in the order the radio handled them
         # ("ptt", on) / ("freq", hz). Use this, not the times, to order them:
         # time.monotonic() ticks every 15.6 ms on Windows.
@@ -347,6 +349,12 @@ class FakeRadio:
             return echo + [mk(0x04, None, bytes([self.mode, self.filt]))]
         if cmd == 0x1A and payload[:1] == b"\x06":
             if len(payload) == 1:
+                if self.ng_data_reads:
+                    self.ng_data_reads -= 1
+                    return echo + [mk(civ.NG)]
+                if self.drop_data_reads:
+                    self.drop_data_reads -= 1
+                    return echo
                 return echo + [mk(0x1A, 0x06, bytes([1 if self.data else 0, self.filt if self.data else 0]))]
             self.data = payload[1] != 0
             return echo + [mk(civ.OK)]

@@ -14,6 +14,7 @@ Events: status (text, level) | connected bool | radio dict | rig RigState |
 """
 
 import asyncio
+import collections
 import concurrent.futures
 import logging
 import threading
@@ -56,6 +57,7 @@ MOD_SETTINGS = {"data_mod": ("DATA MOD", "data_mod"),        # label, key in civ
                 "data_off_mod": ("DATA OFF MOD", "data_off_mod")}
 FENCE_SECONDS = 1.5
 CIV_ANSWER_TIMEOUT = 1.0
+READ_LOST_AFTER = 0.5               # a state read unanswered this long is written off (RTT is ~50 ms)
 MENU_READ_TRIES = 2
 MOD_RETRY_TICKS = 40                # poll ticks (10 s) between re-reads of an unknown DATA MOD
 MODS_SETUP_WAIT = 8.0               # key-down waits this long for DATA MOD setup to finish
@@ -127,6 +129,12 @@ class RadioSession:
         # group (target reply count, deadline) after a change made by the app.
         self._reads_sent = dict.fromkeys(civ.READ_GROUPS, 0)
         self._replies = dict.fromkeys(civ.READ_GROUPS, 0)
+        # Send times of reads not answered yet. The radio may answer a read
+        # with NG (e.g. while transmitting) or the answer may be lost; such
+        # reads are written off after READ_LOST_AFTER, or the counters would
+        # stay behind for good and _civ_ask would reject every later answer
+        # as "an older read's" (PTT refused: did not confirm its DATA mode).
+        self._pending_reads = {g: collections.deque() for g in civ.READ_GROUPS}
         self._fence = {}
         self._keying = False             # key-down requested, waiting for the DATA check
         # PTT requests: the newest one wins. Callers set the desired state
@@ -549,7 +557,10 @@ class RadioSession:
                 self._loop.create_task(self._woke_up())
         for kind, value in events:
             if kind == "reply":
-                self._replies[value] += 1          # count first: _civ_ask waiters check it
+                pending = self._pending_reads[value]
+                if pending:                         # else: late answer to a read already written off
+                    pending.popleft()
+                    self._replies[value] += 1      # count first: _civ_ask waiters check it
             for match, fut in list(self._civ_waiters):
                 if not fut.done() and match(kind, value):
                     fut.set_result((kind, value))
@@ -595,10 +606,24 @@ class RadioSession:
             return
         g = civ.read_group(frame)
         if g is not None:
+            self._expire_reads(g)
             self._reads_sent[g] += 1
+            self._pending_reads[g].append(time.monotonic())
         elif len(frame) == 7 and frame[4] == 0x1C and frame[5] == 0x01:
             self._tuner_reads += 1
         self._serial.send_civ(frame)
+
+    def _expire_reads(self, g):
+        """Write off reads of group g that got no answer in READ_LOST_AFTER."""
+        pending = self._pending_reads[g]
+        limit = time.monotonic() - READ_LOST_AFTER
+        lost = 0
+        while pending and pending[0] < limit:
+            pending.popleft()
+            self._replies[g] += 1
+            lost += 1
+        if lost:
+            log.debug("CI-V: %d '%s' read(s) got no answer; written off", lost, g)
 
     def _fenced_state(self, st):
         """Replace fields whose fence is up with the app's own (newer) values."""
@@ -625,6 +650,7 @@ class RadioSession:
             if group is None:
                 own = match
             else:
+                self._expire_reads(group)
                 target = self._reads_sent[group] + 1          # this read's reply number
 
                 def own(k, v, _m=match, _g=group, _t=target):

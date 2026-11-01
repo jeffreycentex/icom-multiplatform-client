@@ -238,6 +238,13 @@ Scales: S-meter 0=S0, 120=S9, 241=S9+60. Po 143=50 %, 213=100 %. SWR 48=1.5,
   reply to *its own* read (reply counters), not an older poll's reply still in
   flight. Without this, PTT right after switching to USB-D was refused
   (Windows CI, `test_key_right_after_switching_to_data`).
+- **Unanswered reads** (owner's IC-7300MK2, 2026-10-31): reads the radio
+  answers with NG or not at all left the reply counters behind for good, so
+  every later answer looked like an older read's and voice PTT was refused
+  ("the radio did not confirm its DATA mode") until the app restarted. Fix:
+  pending read times per group (`_pending_reads`); a read unanswered after
+  `READ_LOST_AFTER` (0.5 s) is written off. Tests:
+  `test_unanswered_data_reads_dont_block_voice`, `test_unanswered_reads_then_data_mode`.
 
 Any new feature that changes radio state or keys the transmitter needs a
 race test (see `test_stale_reply_cannot_enable_ptt`, `test_quick_release_never_sticks`).

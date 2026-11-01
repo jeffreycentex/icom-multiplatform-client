@@ -17,7 +17,7 @@ from fake_rsba1 import FakeRadio  # noqa: E402
 from icomremote import civ  # noqa: E402
 from icomremote.restore import RestoreStore  # noqa: E402
 from icomremote.rigctld import RigctldServer  # noqa: E402
-from icomremote.session import ConnectionSpec, PttRefused, RadioSession  # noqa: E402
+from icomremote.session import READ_LOST_AFTER, ConnectionSpec, PttRefused, RadioSession  # noqa: E402
 from icomremote.txaudio import FRAME, TxFramer  # noqa: E402
 from test_session import wait_for  # noqa: E402
 
@@ -325,6 +325,41 @@ class TestVoicePtt(_TxBase):
         self.session.set_mode("USB", not plain)
         self.assertTrue(wait_for(lambda: self.radio.data == (not plain) and len(self.session._tx_sources) == 2
                                  and self.session.mods["data_off_mod"]["value"] == LAN))
+
+    def _unanswered_reads(self, ng=0, dropped=0):
+        """The radio answers DATA reads with NG (e.g. while transmitting) or not at all."""
+        from icomremote import civ as C
+        self.radio.ng_data_reads, self.radio.drop_data_reads = ng, dropped
+        for _ in range(ng + dropped):
+            self.session._loop.call_soon_threadsafe(self.session._tx_civ, C.read_data_mode(0xB6))
+        self.assertTrue(wait_for(lambda: self.radio.ng_data_reads == 0 and self.radio.drop_data_reads == 0))
+
+    def test_unanswered_data_reads_dont_block_voice(self):
+        """Regression (IC-7300MK2, 2026-10-31): after the radio left a few DATA reads
+        unanswered, every later answer was taken for an older read's and voice PTT
+        was refused for good ("the radio did not confirm its DATA mode")."""
+        self._ready()
+        for ng, dropped in ((1, 0), (3, 0), (0, 3), (5, 5)):
+            self._unanswered_reads(ng, dropped)
+            self.session.set_ptt(True, owner="space", voice_ok=True)       # at once: still keys
+            self.assertTrue(wait_for(lambda: self.radio.ptt, 3), "refused after %d NG / %d lost" % (ng, dropped))
+            self.session.set_ptt(False)
+            self.assertTrue(wait_for(lambda: not self.radio.ptt))
+            time.sleep(READ_LOST_AFTER + 0.1)                                # written off by now:
+            self.session.set_ptt(True, owner="space", voice_ok=True)       # keys without delay
+            self.assertTrue(wait_for(lambda: self.radio.ptt, 1.2), "slow key after %d NG / %d lost" % (ng, dropped))
+            self.session.set_ptt(False)
+            self.assertTrue(wait_for(lambda: not self.radio.ptt))
+        self.assertFalse(any("PTT refused" in t for t in self.statuses()))
+
+    def test_unanswered_reads_then_data_mode(self):
+        self._ready(plain=False)
+        self._unanswered_reads(ng=4, dropped=2)
+        self.session.set_ptt(True)
+        self.assertTrue(wait_for(lambda: self.radio.ptt, 3))
+        self.assertEqual(self.session._tx_kind, "data")
+        self.session.set_ptt(False)
+        self.assertTrue(wait_for(lambda: not self.radio.ptt))
 
     def test_voice_needs_voice_ok(self):
         self._ready()
