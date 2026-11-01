@@ -360,6 +360,37 @@ Switching is implemented for the IC-7300MK2, IC-705 and IC-9700 (see
 app reports that it doesn't know the setting; set DATA MOD and DATA OFF MOD
 to LAN on the radio yourself.
 
+#### Data from a computer on the radio's USB port, voice through Icom Remote
+
+Because the two settings are separate, data can come from a program on a
+computer connected to the radio by USB (at the station, reached by remote
+desktop) while voice goes through Icom Remote:
+
+| Setting | Value | Used in |
+|---|---|---|
+| DATA MOD | USB | DATA modes (USB-D …): audio from the USB-connected computer |
+| DATA OFF MOD | LAN | voice modes (USB, LSB, AM, FM): audio from Icom Remote |
+
+In Icom Remote, untick **DATA MOD → LAN** and leave **DATA OFF MOD → LAN**
+ticked (both take effect at the next connect). The app then leaves DATA MOD
+on USB, switches DATA OFF MOD to LAN while connected and puts it back when
+you disconnect.
+
+- **Voice**: as usual, the armed space bar in LSB/USB/AM/FM.
+- **Data**: select a DATA mode first (the **DATA** button in Icom Remote, or
+  on the radio). This matters for programs that key the radio through the
+  USB virtual serial port (RTS or DTR, set by the radio's *USB SEND* setting)
+  instead of CI-V: they don't change the mode themselves. Keyed in a voice
+  mode, the radio would take its audio from DATA OFF MOD, i.e. from the LAN,
+  and transmit silence (in AM/FM a bare carrier).
+- Icom Remote's own data PTT (PTT button, rigctl `T 1`) is refused in this
+  setup ("DATA MOD is USB, not LAN"), so it can't key the radio while the
+  data audio would come from the USB port.
+- Switching the radio to a DATA mode while voice is keyed from Icom Remote
+  unkeys it, so a data program that changes the mode can't take over a voice
+  transmission. Stop the data program's transmissions while you work voice.
+- Received audio goes to both the USB port and the LAN.
+
 ## rigctld (CAT control)
 
 On by default, listening on `127.0.0.1:4532` (the standard hamlib port). Use
