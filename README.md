@@ -13,6 +13,10 @@ IC-7300MK2 ◄udp─┤ session thread (asyncio): control / serial / audio  │
                 └─────────────────────────────────────────────────────┘
 ```
 
+![Icom Remote running on macOS](docs/screenshot-macos.png)
+
+*Icom Remote running on macOS (dark mode), before connecting.*
+
 ## Status
 
 | Step | Content | State |
