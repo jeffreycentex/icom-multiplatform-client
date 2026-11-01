@@ -79,6 +79,11 @@ scope, CW/RTTY modes.
   grey off-air. (A bar that switched to Po/SWR on TX confused the owner.)
 - **Layout**: two columns. Left: radio, tuning, RX audio, recording. Right:
   transmit, rigctld. Avoid making the window taller.
+- **Quick tune** (2026-10-31): up to 10 buttons, frequency only, from
+  `<settings dir>/quicktune.txt` (`name, kHz` per line, names max 10 chars).
+  No file = box hidden; the file is re-read when it changes (checked every
+  0.5 s). Right column under Transmit; the rigctld hint went into a tooltip
+  to keep the window height. GUI tests pass a temp `quicktune_path`.
 - **Power ON/OFF** (step 5): OFF with a confirm dialog (unkey + MOD restore
   first). ON works over the LAN on the IC-7300MK2. Where a radio's network
   drops when off, Power ON is simply unreachable (not connected).
@@ -124,6 +129,7 @@ icomremote/
   sinks.py      SoundCardSink (PI-controlled clock-drift lock), WavSink,
                 M4aSink; from kiwisdr-remote.
   restore.py    on-disk record of radio settings to put back.
+  quicktune.py  quick-tune file parser (quicktune.txt, settings dir).
   timerres.py   timeBeginPeriod(1) on Windows while connected.
   probe.py      CLI connection test with --debug packet hex dump.
   rsba1/        protocol: packets.py, passcode.py, seqbuf.py (reorder +

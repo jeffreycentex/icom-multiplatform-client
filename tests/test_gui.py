@@ -39,7 +39,8 @@ class TestGui(unittest.TestCase):
         settings = QSettings(os.path.join(self.tmp, "test.ini"), QSettings.IniFormat)
         settings.setValue("rig_enable", False)            # don't grab port 4532
         self.radio = FakeRadio(mode=0x01, data=False).start()
-        self.w = MainWindow(settings=settings)
+        self.quicktune = os.path.join(self.tmp, "quicktune.txt")     # not your real one
+        self.w = MainWindow(settings=settings, quicktune_path=self.quicktune)
         from icomremote.restore import RestoreStore
         self.w.radio._store = RestoreStore(self.tmp)     # keep restore records out of your config dir
         self.w.show()
@@ -186,6 +187,28 @@ class TestGui(unittest.TestCase):
                                         and w.rec_label.text().startswith("Saved api_test")))
         w.api_enable.setChecked(False)
         self.assertEqual(w.api_status.text(), "Off")
+
+    def test_quicktune_buttons(self):
+        w = self.w
+        self.assertFalse(w.quicktune_box.isVisible())                 # no file: no box
+        with open(self.quicktune, "w") as f:
+            f.write("# name, kHz\n40mFT8, 7074.00\n20mFT8, 14074\nWay too long name, 3573\n")
+        self.assertTrue(self.pump_until(lambda: w.quicktune_box.isVisible(), 3))   # picked up while running
+        shown = [b.text() for b in w.quicktune_buttons if b.isVisible()]
+        self.assertEqual(shown, ["40mFT8", "20mFT8", "Way too lo"])
+        self.assertFalse(w.quicktune_buttons[0].isEnabled())           # not connected yet
+        p = self.radio.ports
+        w.radio.connect(ConnectionSpec("127.0.0.1", "beer", "beerbeer", p["control"], p["serial"], p["audio"]))
+        self.assertTrue(self.pump_until(lambda: w.quicktune_buttons[0].isEnabled()))
+        mode = (self.radio.mode, self.radio.data, self.radio.filt)
+        w.quicktune_buttons[0].click()
+        self.assertTrue(self.pump_until(lambda: self.radio.freq_hz == 7_074_000 and w.freq.value() == 7074.0))
+        w.quicktune_buttons[1].click()
+        self.assertTrue(self.pump_until(lambda: self.radio.freq_hz == 14_074_000))
+        time.sleep(0.3)
+        self.assertEqual((self.radio.mode, self.radio.data, self.radio.filt), mode)   # frequency only
+        os.remove(self.quicktune)
+        self.assertTrue(self.pump_until(lambda: not w.quicktune_box.isVisible(), 3))
 
     def test_voice_space_bar(self):
         from test_tx import FakeSource

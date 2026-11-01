@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
     QSlider, QSpinBox, QStatusBar, QVBoxLayout, QWidget)
 
-from . import __version__, civ
+from . import __version__, civ, quicktune
 from .api import DEFAULT_PORT as API_DEFAULT_PORT, ApiServer
 from .rigctld import RigctldServer
 from .service import ApiError, IcomService, default_record_dir
@@ -37,7 +37,7 @@ class _Bridge(QObject):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings=None):
+    def __init__(self, settings=None, quicktune_path=None):
         super().__init__()
         self.setWindowTitle("Icom Remote %s" % __version__)
         self.settings = settings if settings is not None else QSettings("IcomRemote", "Icom Remote")
@@ -47,6 +47,8 @@ class MainWindow(QMainWindow):
         self.radio = self.service.radio
         self.rigctld = None
         self.api = None
+        self.quicktune_path = quicktune_path or quicktune.default_path()
+        self._quicktune_stamp = ()          # (mtime, size) of the file last read; None = no file
         self._editing_freq = False
         self._rec_started = None
         self._space_owner = object()     # identifies space-bar keying to the session
@@ -65,6 +67,7 @@ class MainWindow(QMainWindow):
         left.addStretch(1)
         right = QVBoxLayout()                # transmit side and CAT
         right.addWidget(self._build_tx_box())
+        right.addWidget(self._build_quicktune_box())
         right.addWidget(self._build_rigctl_box())
         right.addWidget(self._build_api_box())
         right.addStretch(1)
@@ -82,6 +85,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(QStatusBar())
 
         self._load_settings()
+        self._check_quicktune()
         self._set_controls_enabled(False)
         self._timer = QTimer(self, interval=500, timeout=self._tick)
         self._timer.start()
@@ -400,10 +404,8 @@ class MainWindow(QMainWindow):
                                        "a scheduler's /tune with mode 'USB').")
         self.rig_plain_data.toggled.connect(self._rig_plain_data_toggled)
         self.rig_status = QLabel("Off")
-        hint = QLabel("In the client choose rig 'Hamlib NET rigctl' (model 2), "
-                      "address 127.0.0.1:<port>.")
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray")
+        self.rig_enable.setToolTip("In the client choose rig 'Hamlib NET rigctl' (model 2), "
+                                   "address 127.0.0.1:<port>.")
         g.addWidget(self.rig_enable, 0, 0)
         g.addWidget(QLabel("Address"), 0, 1)
         g.addWidget(self.rig_addr, 0, 2)
@@ -411,7 +413,25 @@ class MainWindow(QMainWindow):
         g.addWidget(self.rig_port, 0, 4)
         g.addWidget(self.rig_plain_data, 1, 0, 1, 5)
         g.addWidget(self.rig_status, 2, 0, 1, 5)
-        g.addWidget(hint, 3, 0, 1, 5)
+        return box
+
+    def _build_quicktune_box(self):
+        box = QGroupBox("Quick tune")
+        box.setToolTip("Buttons from %s\n(one 'name, kHz' per line, up to %d; names up to %d characters)"
+                       % (self.quicktune_path, quicktune.MAX_BUTTONS, quicktune.MAX_LABEL))
+        g = QGridLayout(box)
+        g.setContentsMargins(6, 4, 6, 4)
+        g.setVerticalSpacing(2)
+        self.quicktune_buttons = []
+        for i in range(quicktune.MAX_BUTTONS):
+            b = QPushButton()
+            b.clicked.connect(lambda _=False, i=i: self._quicktune_clicked(i))
+            b.hide()
+            g.addWidget(b, i // 5, i % 5)
+            self.quicktune_buttons.append(b)
+        self._quicktune_entries = []
+        self.quicktune_box = box
+        box.hide()
         return box
 
     def _build_api_box(self):
@@ -568,7 +588,7 @@ class MainWindow(QMainWindow):
 
     def _set_controls_enabled(self, on):
         for w in (self.freq, self.data_btn, self.ptt_btn, self.voice_arm, self.rf_power, self.tune_btn,
-                  *self.mode_buttons.values(), *self.filter_buttons.values()):
+                  *self.mode_buttons.values(), *self.filter_buttons.values(), *self.quicktune_buttons):
             w.setEnabled(on)
         if not on:
             self.voice_arm.setChecked(False)       # never stays armed across connections
@@ -620,6 +640,34 @@ class MainWindow(QMainWindow):
 
     def _filter_clicked(self, n):
         self._control(self.radio.set_filter, n)
+
+    def _check_quicktune(self):
+        """(Re)load the quick-tune file when it appears, changes or goes away."""
+        try:
+            st = os.stat(self.quicktune_path)
+            stamp = (st.st_mtime, st.st_size)
+        except OSError:
+            stamp = None
+        if stamp == self._quicktune_stamp:
+            return
+        self._quicktune_stamp = stamp
+        entries, problems = quicktune.load(self.quicktune_path) if stamp else (None, [])
+        self._quicktune_entries = entries or []
+        for i, b in enumerate(self.quicktune_buttons):
+            if i < len(self._quicktune_entries):
+                label, hz = self._quicktune_entries[i]
+                b.setText(label)
+                b.setToolTip("%.3f kHz" % (hz / 1000.0))
+                b.show()
+            else:
+                b.hide()
+        self.quicktune_box.setVisible(bool(self._quicktune_entries))
+        if problems:
+            self.statusBar().showMessage("%s: %s" % (quicktune.FILE_NAME, "; ".join(problems)), 10000)
+
+    def _quicktune_clicked(self, i):
+        if i < len(self._quicktune_entries):
+            self._control(self.radio.set_frequency, self._quicktune_entries[i][1])
 
     def _control(self, fn, *args):
         try:
@@ -1090,6 +1138,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("rigctl: %s" % payload, 3000)
 
     def _tick(self, *_):
+        self._check_quicktune()
         if self.radio.recording_seconds() is not None and self._rec_started is not None:
             wall = time.monotonic() - self._rec_started
             self.rec_label.setText("Recording  %02d:%02d:%02d" % (wall // 3600, wall % 3600 // 60, wall % 60)
