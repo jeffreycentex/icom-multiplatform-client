@@ -115,7 +115,8 @@ class TestGui(unittest.TestCase):
         w.data_btn.click()
         self.assertTrue(self.pump_until(lambda: self.radio.data and w.radio._tx_source is not None))
         w.ptt_btn.click()
-        self.assertTrue(self.pump_until(lambda: self.radio.ptt and w.tx_indicator.text() == "TX"))
+        self.assertTrue(self.pump_until(lambda: self.radio.ptt and w.tx_indicator.text() == "TX"),
+                        "not keyed; status: %r / %r" % (w.statusBar().currentMessage(), w.conn_label.text()))
         self.assertTrue(self.pump_until(lambda: w.tx_level.value() > 0))
         self.assertTrue(self.pump_until(lambda: "SWR 1.5" in w.txmeter_label.text()))  # Po/SWR on TX
         self.assertIn("Output", w.txmeter_label.text())
