@@ -24,7 +24,10 @@ scope, CW/RTTY modes.
 
 - Engineer (BS Engineering, MS Computer Science). Prefers direct answers.
 - Tests on macOS with Homebrew **Python 3.15**, WSJT-X, BlackHole 2ch (RX) +
-  BlackHole 16ch (TX). Not yet tested on Windows or Linux.
+  BlackHole 16ch (TX). Linux: audio cables tested by the owner; WSJT-X /
+  JS8Call on Linux **not confirmed** (with kiwisdr-remote the owner saw the
+  sinks missing from their device lists; README has the remap-source
+  workaround, untried). Windows not tested on hardware.
 - Builds in numbered steps; each is tested on the real radio before the next.
 - For ambiguous or safety-relevant changes, ask before building.
 - Commits: author `jeffreycentex <jeffreycentex@gmail.com>`; end messages with
@@ -40,8 +43,9 @@ scope, CW/RTTY modes.
 | 4 | RF power, TUNE, Output/SWR readout | TUNE + PTT verified; readout redesigned after feedback |
 | 5 | Power ON/OFF | verified on IC-7300MK2 (off, on, connect while off) |
 | 6 | PyInstaller builds + CI | CI green on macOS, Windows, Linux (tests incl. GUI, build, built-app self-check); owner to test the .app and a Windows build on hardware |
-| 0.9 | IC-9700 / IC-7610 profiles, per-model menu table (`civ.MODELS`), Linux audio docs, README uses `run_icomremote.py` | tagged `v0.9`; other models tested against the fake radio only |
-| API | Remote control API v1 (kiwisdr-remote compatible subset) for FLDigi Net Scheduler: status, tune, record/start, record/stop; `ctl` client | fake radio only; owner to test with the scheduler |
+| 0.9 | IC-9700 / IC-7610 profiles, per-model menu table (`civ.MODELS`), Linux audio docs, README uses `run_icomremote.py` | tagged `v0.9`; **IC-705 confirmed working by the owner** (2026-10-31); IC-9700 / IC-7610 fake radio only |
+| API | Remote control API v1 (kiwisdr-remote compatible subset) for FLDigi Net Scheduler: status, tune, record/start, record/stop; `ctl` client | verified by the owner (scheduler, token) |
+| QT | Quick-tune buttons (`quicktune.txt`) | verified by the owner |
 
 ## Spec decisions (from the owner)
 
@@ -240,6 +244,14 @@ Scales: S-meter 0=S0, 120=S9, 241=S9+60. Po 143=50 %, 213=100 %. SWR 48=1.5,
   `_ptt_lock`; only the newest applies; automatic unkeys go through
   `_unkey()`, which also bumps the sequence.
 
+- **Restore vs. a running MOD switch** (macOS CI, 2026-10-31): after Power ON
+  the wake-up setup runs as a task and switches DATA MOD to LAN *after*
+  power is reported on. A disconnect in that window restored nothing, then
+  the task wrote LAN: radio left on LAN (record on disk caught it at the
+  next connect). Fix: `_finish_mod_setup()` waits (max 8 s, then cancels) for
+  the wake-up task and the re-read task before every restore (disconnect,
+  Power OFF, Restore now). Tests: `test_disconnect_during_power_on_setup`,
+  `test_power_off_during_power_on_setup` (fake `menu_delay`).
 - **Waiting for an answer**: `_civ_ask` on a state read accepts only the
   reply to *its own* read (reply counters), not an older poll's reply still in
   flight. Without this, PTT right after switching to USB-D was refused

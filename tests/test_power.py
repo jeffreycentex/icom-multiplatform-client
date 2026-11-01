@@ -63,6 +63,36 @@ class TestPowerOffOn(_TxBase):
         self.radio.powered = True                              # and on again, locally
         self.assertTrue(wait_for(lambda: self.session.power == "on", 8))
 
+    def _power_on_then(self, action):
+        """Power ON with slow menu answers, then `action` the moment the app
+        reports the radio on: while DATA MOD is being switched back to LAN."""
+        self.assertTrue(wait_for(lambda: self.session.power == "on" and self.session._mods_ready is True))
+        self.session.power_off()
+        self.assertTrue(wait_for(lambda: self.session.power == "standby" and not self.radio.powered))
+        self.radio.menu_delay = 0.2
+        self.session.power_on()
+        end = time.time() + 15
+        while self.session.power != "on" and time.time() < end:
+            time.sleep(0.005)
+        self.assertEqual(self.session.power, "on")
+        self.assertIsNot(self.session._mods_ready, True, "setup already done: race not exercised")
+        action()
+
+    def test_disconnect_during_power_on_setup(self):
+        """Regression (macOS CI): a disconnect right after Power ON restored nothing,
+        then the still-running wake-up setup wrote LAN: DATA MOD left on LAN."""
+        self._power_on_then(self.session.disconnect)
+        self.assertEqual(self.radio.menu[b"\x00\x85"], USB)
+        self.assertEqual(self.radio.menu[b"\x00\x84"], MIC)
+        self.assertEqual(self.pending(), {})
+
+    def test_power_off_during_power_on_setup(self):
+        self._power_on_then(self.session.power_off)
+        self.assertTrue(wait_for(lambda: self.radio.power_log[-1:] == ["off"] and not self.radio.powered, 15))
+        self.assertEqual(self.radio.menu[b"\x00\x85"], USB)
+        self.assertEqual(self.radio.menu[b"\x00\x84"], MIC)
+        self.assertEqual(self.pending(), {})
+
     def test_power_off_unkeys_first(self):
         self.session.set_tx_device("fake", 1.0)
         self.session.set_mode("USB", True)

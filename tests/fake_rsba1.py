@@ -128,6 +128,7 @@ class FakeRadio:
         self.freq_log = []                   # (time, hz) of every frequency set
         self.ng_data_reads = 0               # answer this many DATA reads (1A 06) with NG only
         self.drop_data_reads = 0             # ... or not at all
+        self.menu_delay = 0.0                # seconds before answering a menu command (a slow radio)
         # PTT changes and frequency sets in the order the radio handled them
         # ("ptt", on) / ("freq", hz). Use this, not the times, to order them:
         # time.monotonic() ticks every 15.6 ms on Windows.
@@ -405,6 +406,8 @@ class FakeRadio:
             self.civ_order.append(("ptt", self.ptt))
             return echo + [mk(civ.OK)]
         if cmd == 0x1A and payload[:1] == b"\x05" and len(payload) >= 3:
+            if self.menu_delay:
+                time.sleep(self.menu_delay)          # blocks the fake: later answers keep their order
             item = bytes(payload[1:3])
             if self.menu_ng or item not in self.menu:
                 return echo + [mk(civ.NG)]

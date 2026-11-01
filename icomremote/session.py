@@ -169,6 +169,7 @@ class RadioSession:
         self._tx_key_count = 0
         self._sink_watch = None          # (callbacks, rx packets, time, sink) at the last check
         self._mod_retry = None           # task re-reading DATA MOD after a failed read
+        self._wake_setup = None          # task switching DATA MOD to LAN after the radio woke up
         self._health_at = 0.0
         self._ptt_owner = None
         self._ptt_timer = None
@@ -363,6 +364,7 @@ class RadioSession:
                     self._stop_tune()
                     self._unkey()
                     if self.power == "on":
+                        await self._finish_mod_setup()
                         await self._restore_data_mod()
                 except Exception:
                     log.exception("cleanup before logout failed")
@@ -554,7 +556,7 @@ class RadioSession:
                 and time.monotonic() >= self._ignore_civ_until):
             self._last_civ_rx = time.monotonic()
             if self.power == "standby" and self._mods_ready is not None:
-                self._loop.create_task(self._woke_up())
+                self._wake_setup = self._loop.create_task(self._woke_up())
         for kind, value in events:
             if kind == "reply":
                 pending = self._pending_reads[value]
@@ -1029,6 +1031,7 @@ class RadioSession:
         async def _do():
             self._stop_tune()
             self._unkey()
+            await self._finish_mod_setup()
             await self._restore_data_mod()           # the radio may be used locally next
             self._ignore_civ_until = time.monotonic() + 2.0
             self._tx_civ(civ.power_off(self.civ_address))
@@ -1302,6 +1305,28 @@ class RadioSession:
         self._emit_mods()
         return ok
 
+    async def _finish_mod_setup(self):
+        """Before restoring: let a DATA MOD switch still running in the
+        background (after a wake-up, or a re-read) finish, so the restore sees
+        what it changed. Otherwise it could write LAN after the restore had
+        found nothing to put back. Cancelling is safe at any point: the
+        original is recorded (memory and disk) before the radio is touched."""
+        current = asyncio.current_task()
+        for t in (self._wake_setup, self._mod_retry):
+            if t is None or t.done() or t is current:
+                continue
+            try:
+                await asyncio.wait_for(asyncio.shield(t), MODS_SETUP_WAIT)
+            except asyncio.TimeoutError:
+                log.warning("DATA MOD setup still running after %.0f s; cancelled", MODS_SETUP_WAIT)
+                t.cancel()
+                try:
+                    await t
+                except BaseException:
+                    pass
+            except Exception:
+                log.exception("DATA MOD setup failed")
+
     # name kept for callers and tests
     async def _restore_data_mod(self):
         return await self._restore_mods()
@@ -1316,6 +1341,7 @@ class RadioSession:
         async def _do():
             if self._keyed:
                 self._unkey(reason="Unkeyed: restoring DATA MOD")
+            await self._finish_mod_setup()
             await self._restore_data_mod()
         asyncio.run_coroutine_threadsafe(_do(), loop)
 
