@@ -319,12 +319,12 @@ confirmed from a log. Hardening added (`tests/test_reliability.py`):
   M4A tests, offscreen) then `build.py --no-install`; artifacts kept 30 days;
   `v*` tags attach archives to a release. This is the only Windows/Linux
   testing so far, and it is how Claude can see Windows results: read runs
-  with `gh api repos/jeffreycentex/icon-multiplatform-client/actions/runs`.
+  with `gh api repos/jeffreycentex/icom-multiplatform-client/actions/runs`.
 - Version: `icomremote/__init__.py` `__version__` (0.9 = tag `v0.9`). Pushing a
   `v*` tag makes the workflow attach the three archives to a GitHub Release.
 - Raw job logs are **not** reachable from Claude's sandbox (blob storage
   blocked); `tests/ci_run.py` and `build.py` report results as annotations:
-  `gh api repos/jeffreycentex/icon-multiplatform-client/check-runs/<job id>/annotations`.
+  `gh api repos/jeffreycentex/icom-multiplatform-client/check-runs/<job id>/annotations`.
 
 ## Lessons from Windows / CI (2026-10-24)
 

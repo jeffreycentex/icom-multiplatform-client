@@ -48,8 +48,8 @@ beyond receive and basic CAT is expected.
 Requires Python 3.10 or newer.
 
 ```
-git clone https://github.com/jeffreycentex/icon-multiplatform-client.git
-cd icon-multiplatform-client
+git clone https://github.com/jeffreycentex/icom-multiplatform-client.git
+cd icom-multiplatform-client
 python -m venv .venv
 # Windows: .venv\Scripts\activate      macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
